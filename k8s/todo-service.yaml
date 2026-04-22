@@ -1,0 +1,71 @@
+# ── Todo Service Deployment + ClusterIP Service ────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-service
+  namespace: todo-saas
+  labels:
+    app: todo-service
+spec:
+  selector:
+    app: todo-service
+  ports:
+    - port: 4002
+      targetPort: 4002
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-service
+  namespace: todo-saas
+spec:
+  selector:
+    matchLabels:
+      app: todo-service
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: todo-service
+    spec:
+      containers:
+        - name: todo-service
+          image: todo-saas/todo-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4002
+          env:
+            # Non-secret config
+            - name: TODO_PORT
+              value: "4002"
+            - name: TODO_CORS_ORIGIN
+              value: "http://localhost"       # Update to your domain
+            - name: MONGO_URI
+              value: "mongodb://mongo:27017/todo-saas"
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+            # Secret
+            - name: TODO_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: todo-saas-secrets
+                  key: TODO_JWT_SECRET
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4002
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4002
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"

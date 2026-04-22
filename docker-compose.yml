@@ -1,0 +1,102 @@
+# ──────────────────────────────────────────────────────
+# Todo SaaS — docker-compose (local dev)
+# ──────────────────────────────────────────────────────
+# Copy .env.example → .env, fill your real values, then:
+#   docker compose up --build
+# ──────────────────────────────────────────────────────
+
+version: "3.9"
+
+services:
+
+  # ── MongoDB ──────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: todo-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - todo-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis Stack (includes RediSearch) ────────────────
+  redis:
+    image: redis/redis-stack:latest
+    container_name: todo-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - todo-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Auth Service ─────────────────────────────────────
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: todo-auth
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/todo-saas
+    ports:
+      - "4001:4001"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - todo-net
+
+  # ── Todo Service ──────────────────────────────────────
+  todo-service:
+    build:
+      context: ./services/todo-service
+      dockerfile: Dockerfile
+    container_name: todo-todos
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/todo-saas
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "4002:4002"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - todo-net
+
+  # ── Frontend (Nginx) ──────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: todo-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - auth-service
+      - todo-service
+    networks:
+      - todo-net
+
+volumes:
+  mongo_data:
+  redis_data:
+
+networks:
+  todo-net:
+    driver: bridge
